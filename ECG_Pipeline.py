@@ -6,8 +6,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Tuple, List, Dict, Optional
+
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 # Computer Vision
 import cv2
@@ -39,7 +45,7 @@ import pickle
 np.random.seed(42)
 torch.manual_seed(42)
 
-print("All libraries imported successfully!")
+logger.info("All libraries imported successfully!")
 
 
 class ECGDataLoader:
@@ -686,7 +692,7 @@ class TimeSeriesResampler:
         try:
             spline = CubicSpline(time, amplitude, bc_type='natural')
         except Exception as e:
-            print(f"Spline creation failed: {e}, using linear interpolation")
+            logger.warning(f"Spline creation failed: {e}, using linear interpolation")
             spline = interp1d(time, amplitude, kind='linear', fill_value='extrapolate')
 
         # Generate new time grid
@@ -761,12 +767,12 @@ class TimeSeriesResampler:
         lengths = [len(v) for v in resampled_leads.values() if len(v) > 0]
 
         if len(set(lengths)) > 1:
-            print(f"Warning: Inconsistent resampled lengths: {set(lengths)}")
+            logger.warning(f"Inconsistent resampled lengths: {set(lengths)}")
             return False
 
         if target_length is not None and len(lengths) > 0:
             if lengths[0] != target_length:
-                print(f"Warning: Expected length {target_length}, got {lengths[0]}")
+                logger.warning(f"Expected length {target_length}, got {lengths[0]}")
                 return False
 
         return True
@@ -1178,6 +1184,7 @@ class ECGTrainer:
 
         return val_loss
 
+
     def fit(self,
             train_loader: DataLoader,
             val_loader: Optional[DataLoader] = None,
@@ -1185,37 +1192,44 @@ class ECGTrainer:
         """
         Train model for specified number of epochs.
         """
-        print(f"Starting training for {epochs} epochs...")
-        print(f"Device: {self.device}")
-
+        self._log_training_start(epochs)
         for epoch in range(epochs):
-            print(f"\nEpoch {epoch + 1}/{epochs}")
-
-            # Train
+            self._log_epoch_start(epoch, epochs)
             train_loss, loss_breakdown = self.train_epoch(train_loader)
-            self.history['train_loss'].append(train_loss)
-
-            for key in loss_breakdown:
-                if key in self.history:
-                    self.history[key].append(loss_breakdown[key])
-
-            print(f"Train Loss: {train_loss:.6f}")
-            print(f"  Seg Loss: {loss_breakdown.get('seg_loss', 0):.6f}")
-            print(f"  BBox Loss: {loss_breakdown.get('bbox_loss', 0):.6f}")
-            print(f"  Signal Loss: {loss_breakdown.get('sig_loss', 0):.6f}")
-
-            # Validate
+            self._update_train_history(train_loss, loss_breakdown)
+            self._log_train_metrics(train_loss, loss_breakdown)
             if val_loader is not None:
                 val_loss = self.validate(val_loader)
-                self.history['val_loss'].append(val_loss)
-                print(f"Val Loss: {val_loss:.6f}")
-
-                # LR scheduling
+                self._update_val_history(val_loss)
+                self._log_val_metrics(val_loss)
                 self.scheduler.step(val_loss)
-
-        print("Training completed!")
-
+        logger.info("Training completed!")
         return self.history
+
+    def _log_training_start(self, epochs):
+        logger.info(f"Starting training for {epochs} epochs...")
+        logger.info(f"Device: {self.device}")
+
+    def _log_epoch_start(self, epoch, epochs):
+        logger.info(f"Epoch {epoch + 1}/{epochs}")
+
+    def _update_train_history(self, train_loss, loss_breakdown):
+        self.history['train_loss'].append(train_loss)
+        for key in loss_breakdown:
+            if key in self.history:
+                self.history[key].append(loss_breakdown[key])
+
+    def _log_train_metrics(self, train_loss, loss_breakdown):
+        logger.info(f"Train Loss: {train_loss:.6f}")
+        logger.info(f"  Seg Loss: {loss_breakdown.get('seg_loss', 0):.6f}")
+        logger.info(f"  BBox Loss: {loss_breakdown.get('bbox_loss', 0):.6f}")
+        logger.info(f"  Signal Loss: {loss_breakdown.get('sig_loss', 0):.6f}")
+
+    def _update_val_history(self, val_loss):
+        self.history['val_loss'].append(val_loss)
+
+    def _log_val_metrics(self, val_loss):
+        logger.info(f"Val Loss: {val_loss:.6f}")
 
     def save_checkpoint(self, save_path: str):
         """Save model checkpoint"""
@@ -1225,7 +1239,7 @@ class ECGTrainer:
             'history': self.history
         }
         torch.save(checkpoint, save_path)
-        print(f"Checkpoint saved to {save_path}")
+    logger.info(f"Checkpoint saved to {save_path}")
 
     def load_checkpoint(self, load_path: str):
         """Load model checkpoint"""
@@ -1233,7 +1247,7 @@ class ECGTrainer:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', self.history)
-        print(f"Checkpoint loaded from {load_path}")
+    logger.info(f"Checkpoint loaded from {load_path}")
 
 
 class SNRMetric:
@@ -1412,21 +1426,21 @@ class SNRMetric:
 
     def print_snr_report(self, snr_results: Dict):
         """Pretty print SNR evaluation report"""
-        print("\n" + "="*60)
-        print("SNR EVALUATION REPORT")
-        print("="*60)
-        print(f"Mean SNR (12 leads): {snr_results['mean_snr']:.2f} dB")
-        print(f"Median SNR: {snr_results['median_snr']:.2f} dB")
-        print(f"Min SNR: {snr_results['min_snr']:.2f} dB")
-        print(f"Max SNR: {snr_results['max_snr']:.2f} dB")
-        print(f"Std Dev: {snr_results['std_snr']:.2f} dB")
-        print(f"Valid Leads: {snr_results['num_valid_leads']}/12")
-        print("\nPer-Lead SNR (dB):")
-        print("-" * 60)
+        logger.info("\n" + "="*60)
+        logger.info("SNR EVALUATION REPORT")
+        logger.info("="*60)
+        logger.info(f"Mean SNR (12 leads): {snr_results['mean_snr']:.2f} dB")
+        logger.info(f"Median SNR: {snr_results['median_snr']:.2f} dB")
+        logger.info(f"Min SNR: {snr_results['min_snr']:.2f} dB")
+        logger.info(f"Max SNR: {snr_results['max_snr']:.2f} dB")
+        logger.info(f"Std Dev: {snr_results['std_snr']:.2f} dB")
+        logger.info(f"Valid Leads: {snr_results['num_valid_leads']}/12")
+        logger.info("\nPer-Lead SNR (dB):")
+        logger.info("-" * 60)
         for lead_name, snr_val in sorted(snr_results['per_lead'].items()):
             status = "✓" if np.isfinite(snr_val) else "✗"
-            print(f"  Lead {lead_name:4s}: {snr_val:8.2f} {status}")
-        print("="*60 + "\n")
+            logger.info(f"  Lead {lead_name:4s}: {snr_val:8.2f} {status}")
+        logger.info("="*60 + "\n")
 
 
 class ECGInferencePipeline:
@@ -1461,56 +1475,17 @@ class ECGInferencePipeline:
     def process_single_image(self, image_path: str) -> Dict:
         """
         Process a single ECG image through the complete pipeline.
-
-        Args:
-            image_path: Path to ECG image (JPEG/PNG)
-
-        Returns:
-            Dict with extracted signals and metadata
         """
-        # Load and preprocess image
-        image = self.data_loader.load_image(image_path)
-        image_normalized = self.data_loader.normalize_image(image)
-
-        # Artifact correction - filter grid and noise
-        signal_mask = self.grid_filter.filter_grid_opencv(image_normalized)
-
-        # Deskew image
-        deskewed_image, rotation_angle = self.lead_localizer.deskew_image(
-            image_normalized, rotation_angle=None
-        )
-
-        # Re-extract signal mask from deskewed image
-        signal_mask = self.grid_filter.filter_grid_opencv(deskewed_image)
-
-        # Detect lead bounding boxes
-        lead_bboxes = self.lead_localizer.detect_lead_bboxes(signal_mask, num_leads=12)
-
-        # Detect calibration marks
-        calib_info = self.lead_localizer.detect_calibration_marks(deskewed_image)
-
-        # Estimate calibration factors
-        calibration = self.calibrator.estimate_calibration_factors(deskewed_image,
-                                                                   self.sampling_rate)
-
-        # Extract traces for each lead
-        traces = {}
-        for i, bbox in enumerate(lead_bboxes):
-            trace = self.trace_extractor.extract_trace_dynamic_programming(
-                signal_mask, bbox
-            )
-
-            if len(trace) > 0:
-                trace = self.trace_extractor.smooth_trace(trace)
-                traces[f'Lead_{i}'] = trace
-
-        # Convert to physical units
-        physical_traces = self.calibrator.pixel_to_physical(traces, calibration,
-                                                            deskewed_image.shape[1])
-
-        # Resample to fixed sampling rate
-        resampled_leads = self.resampler.resample_all_leads(physical_traces, method='cubic')
-
+        image, image_normalized = self._preprocess_image(image_path)
+        signal_mask = self._artifact_correction(image_normalized)
+        deskewed_image, rotation_angle = self._deskew_image(image_normalized)
+        signal_mask = self._artifact_correction(deskewed_image)
+        lead_bboxes = self._detect_leads(signal_mask)
+        calib_info = self._detect_calibration_marks(deskewed_image)
+        calibration = self._estimate_calibration(deskewed_image)
+        traces = self._extract_traces(signal_mask, lead_bboxes)
+        physical_traces = self._convert_to_physical(traces, calibration, deskewed_image.shape[1])
+        resampled_leads = self._resample_leads(physical_traces)
         return {
             'image_path': image_path,
             'rotation_angle': rotation_angle,
@@ -1524,6 +1499,41 @@ class ECGInferencePipeline:
             'signal_mask': signal_mask,
             'deskewed_image': deskewed_image
         }
+
+    def _preprocess_image(self, image_path: str):
+        image = self.data_loader.load_image(image_path)
+        image_normalized = self.data_loader.normalize_image(image)
+        return image, image_normalized
+
+    def _artifact_correction(self, image):
+        return self.grid_filter.filter_grid_opencv(image)
+
+    def _deskew_image(self, image_normalized):
+        return self.lead_localizer.deskew_image(image_normalized, rotation_angle=None)
+
+    def _detect_leads(self, signal_mask):
+        return self.lead_localizer.detect_lead_bboxes(signal_mask, num_leads=12)
+
+    def _detect_calibration_marks(self, deskewed_image):
+        return self.lead_localizer.detect_calibration_marks(deskewed_image)
+
+    def _estimate_calibration(self, deskewed_image):
+        return self.calibrator.estimate_calibration_factors(deskewed_image, self.sampling_rate)
+
+    def _extract_traces(self, signal_mask, lead_bboxes):
+        traces = {}
+        for i, bbox in enumerate(lead_bboxes):
+            trace = self.trace_extractor.extract_trace_dynamic_programming(signal_mask, bbox)
+            if len(trace) > 0:
+                trace = self.trace_extractor.smooth_trace(trace)
+                traces[f'Lead_{i}'] = trace
+        return traces
+
+    def _convert_to_physical(self, traces, calibration, width):
+        return self.calibrator.pixel_to_physical(traces, calibration, width)
+
+    def _resample_leads(self, physical_traces):
+        return self.resampler.resample_all_leads(physical_traces, method='cubic')
 
     def process_batch(self, image_paths: List[str]) -> List[Dict]:
         """
@@ -1991,4 +2001,3 @@ def generate_synthetic_ecg_image(height: int = 512,
     return image, metadata
 
 
-print("All classes and functions defined successfully!")

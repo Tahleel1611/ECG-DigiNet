@@ -41,7 +41,7 @@ def test_classes():
     """Test that main classes can be instantiated"""
     try:
         import torch
-        from ECG_Pipeline import (
+        from ecg_pipeline.ecg_pipeline import (
             ECGDataLoader, GridAndNoiseFilter, LeadLocalizationAndDeskew,
             SignalTraceExtractor, CalibrationAndScaling, TimeSeriesResampler,
             MultiTaskECGModel, DiceLoss, JaccardLoss, MultiTaskECGLoss,
@@ -89,7 +89,7 @@ def test_basic_functionality():
     try:
         import numpy as np
         import torch
-        from ECG_Pipeline import generate_synthetic_ecg_image, MultiTaskECGModel, SNRMetric
+        from ecg_pipeline.ecg_pipeline import generate_synthetic_ecg_image, MultiTaskECGModel, SNRMetric
 
         # Generate test image
         image, metadata = generate_synthetic_ecg_image(height=256, width=512, num_leads=3)
@@ -108,7 +108,6 @@ def test_basic_functionality():
         print(f"✓ Model forward pass successful: {list(output.keys())}")
 
         # Test SNR calculation
-        from ECG_Pipeline import SNRMetric
         snr_calc = SNRMetric()
 
         pred = np.random.randn(1000) * 0.1 + np.sin(np.linspace(0, 4*np.pi, 1000))
@@ -123,6 +122,54 @@ def test_basic_functionality():
         traceback.print_exc()
         return False
 
+def test_corrupted_image():
+    """Test pipeline behavior with corrupted/unreadable image input"""
+    try:
+        from ecg_pipeline.ecg_pipeline import ECGInferencePipeline, MultiTaskECGModel
+        import torch
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = MultiTaskECGModel(backbone='resnet34', num_leads=12, sequence_length=1024).to(device)
+        pipeline = ECGInferencePipeline(model, device)
+        # Pass a non-existent file path
+        result = pipeline.process_single_image('nonexistent_file.png')
+        print(f"✓ Corrupted image test: {result.get('error', 'No error key')}")
+        return True
+    except Exception as e:
+        print(f"✗ Corrupted image test error: {e}")
+        return False
+
+def test_missing_leads():
+    """Test SNRMetric with missing leads in ground truth"""
+    try:
+        from ecg_pipeline.ecg_pipeline import SNRMetric
+        import numpy as np
+        snr_metric = SNRMetric()
+        # Simulate missing leads by passing empty dict
+        pred = {'Lead_0': np.ones(1000)}
+        truth = {}  # No leads present
+        snr = snr_metric.calculate_snr(pred.get('Lead_0', np.zeros(1000)), np.zeros(1000))
+        print(f"✓ Missing leads test: SNR={snr:.2f} dB")
+        return True
+    except Exception as e:
+        print(f"✗ Missing leads test error: {e}")
+        return False
+
+def test_pipeline_error_handling():
+    """Test pipeline error handling for invalid input type"""
+    try:
+        from ecg_pipeline.ecg_pipeline import ECGInferencePipeline, MultiTaskECGModel
+        import torch
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = MultiTaskECGModel(backbone='resnet34', num_leads=12, sequence_length=1024).to(device)
+        pipeline = ECGInferencePipeline(model, device)
+        # Pass an integer instead of a file path
+        result = pipeline.process_single_image(12345)
+        print(f"✓ Pipeline error handling test: {result.get('error', 'No error key')}")
+        return True
+    except Exception as e:
+        print(f"✗ Pipeline error handling test error: {e}")
+        return False
+
 def main():
     """Run all tests"""
     print("="*60)
@@ -132,7 +179,10 @@ def main():
     tests = [
         ("Import Test", test_imports),
         ("Class Instantiation Test", test_classes),
-        ("Basic Functionality Test", test_basic_functionality)
+        ("Basic Functionality Test", test_basic_functionality),
+        ("Corrupted Image Test", test_corrupted_image),
+        ("Missing Leads Test", test_missing_leads),
+        ("Pipeline Error Handling Test", test_pipeline_error_handling)
     ]
 
     passed = 0

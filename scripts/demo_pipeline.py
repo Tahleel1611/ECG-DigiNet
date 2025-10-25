@@ -5,7 +5,7 @@ Demo script showing the ECG Pipeline in action
 
 import numpy as np
 import torch
-from ECG_Pipeline import generate_synthetic_ecg_image, MultiTaskECGModel, ECGInferencePipeline
+from ecg_pipeline.ecg_pipeline import generate_synthetic_ecg_image, MultiTaskECGModel, ECGInferencePipeline
 
 def main():
     print("🫀 ECG Image-to-Time-Series Pipeline Demo")

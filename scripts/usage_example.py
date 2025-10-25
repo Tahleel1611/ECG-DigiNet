@@ -6,7 +6,7 @@ Demonstrates basic usage patterns for the ECG image-to-time-series pipeline
 
 import torch
 import numpy as np
-from ECG_Pipeline import (
+from ecg_pipeline.ecg_pipeline import (
     generate_synthetic_ecg_image,
     MultiTaskECGModel,
     ECGInferencePipeline,
